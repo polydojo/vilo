@@ -31,7 +31,7 @@ import pprint;
 
 from addict import Addict;
 
-__version__ = "0.0.1";  # Req'd by flit.
+__version__ = "0.0.2";  # Req'd by flit.
 
 class DotDict (Addict):
     def __missing__ (self, key):

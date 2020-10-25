@@ -7,9 +7,12 @@ Vilo is a WSGI micro-framework for building web apps with Python. Inspired by [E
 
 Installation
 --------------
-Please download `vilo.py` into your project directory.
+Vilo is installable via pip:
+```
+pip install vilo
+```
 
- [Gunicorn](https://gunicorn.org/) is recommended for running Vilo apps (in development and production), installable via pip:
+[Gunicorn](https://gunicorn.org/) is recommended for running Vilo apps (in development and production), installable via pip:
 ```
 pip install gunicorn
 ```
@@ -251,6 +254,7 @@ HTML Escaping & `%s`-Formatting
 
 Working With Forms
 --------------------------
+
 - Use `req.qdata` to access *q*uery string parameters.
 -  Use `req.fdata` to access POSTed *f*orm data.
 - POSTed multipart/form-data is also available via `req.fdata`.
