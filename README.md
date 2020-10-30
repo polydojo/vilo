@@ -3,15 +3,12 @@ Vilo
 
 Vilo is a WSGI micro-framework for building web apps with Python. Inspired by [Express](https://expressjs.com/) and [Bottle](https://bottlepy.org/), Vilo is lightweight, unopinionated, and flexible.
 
-**Quick Plug:** Vilo is built by the folks at [Polydojo, Inc.](https://www.polydojo.com/) Effective project management is essential for building and maintaining web apps. If your team is looking for a simple project management tool, check out our latest product: BoardBell.com.
-
 Installation
 --------------
 Vilo is installable via pip:
 ```
 pip install vilo
 ```
-
 [Gunicorn](https://gunicorn.org/) is recommended for running Vilo apps (in development and production), installable via pip:
 ```
 pip install gunicorn
@@ -60,7 +57,7 @@ Bottle and Flask include a development server with hot-reloads for local testing
 Basic Routes & Static Files
 --------------------------------
 
-Working with fixed routes is fairly straightforward. For instance, to handle the route `"/foo/bar"`, just supply that path to `app.route(.)` For example:
+Working with fixed routes is fairly straightforward. To handle the route `"/foo/bar"`, just supply that path to `app.route(.)` For example:
 
 ```py
 # import vilo, define app etc.
@@ -82,7 +79,7 @@ def post_newTask (req, res):
     return "You sent a POST request at path: /newTask";
 ```
 
-If you have static CSS, JS, image or other static files, you can use `res.staticFile(filepath, [mimeType])` for serving them. For example, let's say you have the following directory structure:
+If you have static CSS, JS, image or other files, serve them using `res.staticFile(filepath, [mimeType])`. For example, let's say you have the following directory structure:
 ```
 - app.py
 - config.py
@@ -127,21 +124,21 @@ The list of matched wildcards is available via `req.wildcards`.
     with `req.wildcards = ['Food', 'Pasta']`.
     
     - but will NOT match `/category/Fo/od/page/Pasta/edit`
-    because `Fo/od` are two separate segments.
+    as `Fo/od` is not a single segment.
 
 2. `/cart/add-item/*`
     - will match `/cart/add-item/123`
       with `req.wildcards = ['123']`.
     
     - but will NOT match `/cart/add-item/12/3`
-    because `12/3` are two separate segments.
+    as `12/3` is not a single segment.
 
 3. `/static/**`
     - will match `/static/lib/js/jquery.js`
       with `req.wildcards = 'lib/javascript/jquery.js`
 
     - but will NOT match `/StaTiC/lib/js/jquery.js`
-    because `StaTiC` won't match `static`.
+    because `StaTiC` and `static` don't match.
 
 Now, using wildcard routes, we could write:
 ```py
@@ -195,13 +192,12 @@ def get_showPosts (req, res):
 ```
 
 **The `mode` parameter to `app.route(.)`:**
-Generally speaking, there's *no need* to explicitly pass `mode`. It takes one of three values: 
-`["re", "wildcard", "exact"]`.
-- `"re"`: regular expression based on `re.match(.)`.
-- `"wildcard":` wildcard matching, as explain hereabove.
-- `"exact"`: exact equality, based on `==` operator.
 
-If `mode` isn't passed, Vilo makes an educated guess.
+Generally speaking, there's *no need* to explicitly pass `mode`, as `app.route(.)` can auto-detect it. If passed explicitly, it accepts one of three values:
+`["re", "wildcard", "exact"]`.
+- `"re"`: regular expression matching, based on `re.match(.)`.
+- `"wildcard":` wildcard segment matching, explained above.
+- `"exact"`: exact path matching, based on `==` operator.
 
 Dot-Accessible Dictionary (`DotDict`)
 -----------------------------------------------
@@ -209,6 +205,7 @@ Dot-Accessible Dictionary (`DotDict`)
 Vilo makes heavy use of dot-accessible dictionaries. In fact, in all previous examples, `app`, `req` and `res` are all dot-accessible dictionaries!
 
 > **Sidebar:**
+> 
 > Vilo relies on [`Addict`](https://github.com/mewwts/addict), a great library for dot-accessible dictionaries. By default, `Addict` does *NOT* raise `KeyError` for missing keys, which can lead to hard-to-debug errors. Vilo defines and uses `DotDict`, a subclass of `Addict` that raises `KeyError` properly.
 > 
 > *Philosophy:* The Polydojo team strongly favours functional programming over classical OOP. *As far as possible*, we avoid writing classes. This is super-easy in JavaScript, especially because object properties are dot-accessible. `Addict` allows us to bring the same ease to Python.
@@ -254,7 +251,6 @@ HTML Escaping & `%s`-Formatting
 
 Working With Forms
 --------------------------
-
 - Use `req.qdata` to access *q*uery string parameters.
 -  Use `req.fdata` to access POSTed *f*orm data.
 - POSTed multipart/form-data is also available via `req.fdata`.
@@ -297,18 +293,9 @@ def get_factorial (req, res):
     """, [n, facto(n)]);
 ```
 
-TODO [Docs]
------------------
-
-Write documentation for:
-
-- File handling,
-- Templating with Qree,
-- Cookies
-- Redirects
-- Error handling
-- Additional examples
-
+Quick Plug
+--------------
+Vilo built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by Sumukh Barve. If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
 
 TestBin: In-Memory Pastebin App:
 ---------------------------------------------
@@ -390,7 +377,20 @@ The module `testbin.py` is included in the Github repo. You can run it as follow
 gunicorn testbin:wsgi --reload
 ```
 
-Licensing:
-------------
+TODO [Docs]
+-----------------
+Documentation regarding:
+- Cookies
+- Redirects
+- Errors
+- [Templating with Qree](https://github.com/polydojo/qree)
 
-The software is licensed under the Apache License 2.0; see [LICENSE.txt](https://github.com/polydojo/vilo/blob/master/LICENSE.txt) for more.
+Licensing
+------------
+Copyright (c) 2020 Polydojo, Inc.
+
+**Software Licensing:**  
+The software is released "AS IS" under the **Apache License 2.0**, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. Kindly see [LICENSE.txt](https://github.com/polydojo/pogodb/blob/master/LICENSE.txt) for more details.
+
+**No Trademark Rights:**  
+The above software licensing terms **do not** grant any right in the trademarks, service marks, brand names or logos of Polydojo, Inc.
