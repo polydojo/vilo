@@ -122,21 +122,18 @@ The list of matched wildcards is available via `req.wildcards`.
 1. `/category/*/page/*/edit`
     - WILL match `/category/Food/page/Pasta/edit`
     with `req.wildcards = ['Food', 'Pasta']`.
-    
     - but will NOT match `/category/Fo/od/page/Pasta/edit`
     as `Fo/od` is not a single segment.
 
 2. `/cart/add-item/*`
     - will match `/cart/add-item/123`
       with `req.wildcards = ['123']`.
-    
     - but will NOT match `/cart/add-item/12/3`
     as `12/3` is not a single segment.
 
 3. `/static/**`
     - will match `/static/lib/js/jquery.js`
       with `req.wildcards = 'lib/javascript/jquery.js`
-
     - but will NOT match `/StaTiC/lib/js/jquery.js`
     because `StaTiC` and `static` don't match.
 
@@ -293,9 +290,45 @@ def get_factorial (req, res):
     """, [n, facto(n)]);
 ```
 
+Working With JSON
+-------------------------
+Vilo makes it easy to consume and produce JSON. In route handlers:  
+- **JSON Requests:**  POSTed `application/json` data is available as `req.fdata`.
+- **JSON Responses:** Returning a `dict` or `list` produces an `application/json` response.
+
 Quick Plug
 --------------
 Vilo built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by Sumukh Barve. If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
+
+Errors & Redirects
+------------------------
+**Redirects:**  
+Return `res.redirect(.)` for redirecting to another URL:
+```py
+@app.route("GET", "/foo")
+def redirect_from_foo_to_bar (req, res):
+	return res.redirect("/bar");
+
+@app.route("GET", "/go/to/boardbell")
+def redirect_to_boardbell_dot_com (req, res):
+	return res.redirect("https://www.boardbell.com/");
+```
+
+**Errors:**
+Raise `vilo.error(.)` to produce a non-200 response.
+```py
+@app.route("GET", "/post/*")
+def get_post (req, res):
+	postId = req.wildcards[0];
+	if not yourLogic_postId_found(postId):
+		raise vilo.error("<h2>No such post.</h2>");
+	# otherwise ...
+	return yourLogic_showPost(postId);
+```
+`vilo.error(.)` takes two parameters:
+- `body` (required): The response body. Similar to the return value for non-error responses. If it's a `dict` or `list`, a JSON response is produced.
+- `statusLine` (optional): A status line like "404 Not Found" or "403 Forbidden"; or alternatively, an integer code like 404 or 405. (Defaults to 404.)
+
 
 TestBin: In-Memory Pastebin App:
 ---------------------------------------------
@@ -379,18 +412,14 @@ gunicorn testbin:wsgi --reload
 
 TODO [Docs]
 -----------------
-Documentation regarding:
-- Cookies
-- Redirects
-- Errors
-- [Templating with Qree](https://github.com/polydojo/qree)
+Write documentation regarding cookies, default errors and [Qree templating](https://github.com/polydojo/qree).
 
 Licensing
 ------------
 Copyright (c) 2020 Polydojo, Inc.
 
 **Software Licensing:**  
-The software is released "AS IS" under the **Apache License 2.0**, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. Kindly see [LICENSE.txt](https://github.com/polydojo/pogodb/blob/master/LICENSE.txt) for more details.
+The software is released "AS IS" under the **Apache License 2.0**, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. Kindly see [LICENSE.txt](https://github.com/polydojo/vilo/blob/master/LICENSE.txt) for more details.
 
 **No Trademark Rights:**  
 The above software licensing terms **do not** grant any right in the trademarks, service marks, brand names or logos of Polydojo, Inc.
