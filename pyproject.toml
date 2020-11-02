@@ -9,5 +9,5 @@ author-email = "8079593+sumukhbarve@users.noreply.github.com"
 home-page = "https://github.com/polydojo/vilo"
 classifiers = ["License :: OSI Approved :: Apache Software License"]
 description-file = "README.md"
-requires = ["addict >=2.3"]
+requires = ["dotsi >=0.0.1"]
 

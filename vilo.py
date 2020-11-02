@@ -27,15 +27,18 @@ import http.cookies;
 import mimetypes;
 import cgi;
 import traceback;
+import hashlib;
+import hmac;
+import base64;
 import pprint;
 
-from addict import Addict;
+import dotsi;
 
-__version__ = "0.0.2";  # Req'd by flit.
+__version__ = "0.0.3-preview";  # Req'd by flit.
 
-class DotDict (Addict):
-    def __missing__ (self, key):
-        raise KeyError(key);    
+############################################################
+# Helpers & Miscellaneous: #################################
+############################################################
 
 httpCodeLineMap = {
     200: "200 OK",
@@ -58,6 +61,7 @@ httpCodeLineMap = {
     500: "500 Internal Server Error",
     503: "503 Service Unavailable",
 };
+
 def getStatusLineFromCode (code):
     return httpCodeLineMap.get(code) or "404 Not Found";
 
@@ -71,20 +75,10 @@ class HttpError (Exception):
         self.viloTag = viloTag;
 error = HttpError;
 
-#TODO:
-"""
-class AppError (Exception):
-    def __init__ (self, body, statusLine=404):
-        self.body = body;
-        self.statusLine = (statusLine
-            if type(statusLine) is not int
-            else getStatusLineFromCode(statusLine)#,                        # no-comma-avoid-tuple
-        );
-""";
 
 KB = 1024;
 MB = KB**2;
-MAX_REQUEST_BODY_SIZE = 1 * MB;
+MAX_REQUEST_BODY_SIZE = 1 * MB; # TODO: Make configurable.
 
 mapli = lambda seq, fn: list(map(fn, seq));
 filterli = lambda seq, fn: list(filter(fn, seq));
@@ -110,25 +104,87 @@ def escfmt (string, seq):
         for (k, v) in seq.items():
             dct[str(k)] = esc(str(v));
         return string % dct;
-    
+
+# String encoding and cookie-signing related: ::::::::::::::
+
+def toBytes (x, enc="utf8"):
+    if type(x) is bytes: return x;
+    if type(x) is str: return x.encode(enc);
+    raise TypeError("Expected `str` (or `bytes`), not `%s`" % (type(x),));
+
+def toStr (x, enc="utf8"):
+    if type(x) is str: return x;
+    if type(x) is bytes: return x.decode(enc);
+    raise TypeError("Expected `bytes` (or `str`), not `%s`" % (type(x),));
+
+def latin1_to_utf8 (s): # TODO: Use for consuing req-headers.
+    "Useful for consuing request headers.";
+    assert type(s) is str;  # str i/p, str o/p.
+    return s.encode("latin1").decode("utf8");
+
+def utf8_to_latin1 (s): # TODO: Use for producing resp-headers.
+    "Useful for producing response headers.";
+    assert type(s) is str;  # str i/p, str o/p.
+    return s.encode("utf8").decode("latin1");
+
+def hmacy (b_msg, b_secret, digestmod=hashlib.sha512):
+    assert type(b_msg) is bytes and type(b_secret) is bytes;
+    return hmac.HMAC(b_secret, b_msg, digestmod).digest();    
+
+B_SIGN_SEP = b"@|";  # SIGNing SEParator, of type `bytes`.
+
+def signWrap (value, secret):
+    b_jval = toBytes(json.dumps(value));
+    b_secret = toBytes(secret);
+    b_sig = hmacy(b_jval, b_secret);
+    b64_jval = base64.b64encode(b_jval);
+    b64_sig = base64.b64encode(b_sig);
+    assert type(b64_sig) is bytes and B_SIGN_SEP not in b64_sig;
+    b_signed = b64_sig + B_SIGN_SEP + b64_jval;
+    return toStr(b_signed);
+
+def signUnwrap (signed, secret):
+    if not (type(signed) is str and toStr(B_SIGN_SEP) in signed):
+        return None;
+    # otherwise ...
+    b_secret = toBytes(secret)
+    b_signed = toBytes(signed);
+    b64_sig, b64_jval = b_signed.split(B_SIGN_SEP, 1);
+    b_jval = base64.b64decode(b64_jval);
+    b_sig = base64.b64decode(b64_sig);
+    b_sigComputed = hmacy(b_jval, b_secret);
+    if b_sig != b_sigComputed:
+        return None;
+    # otherwise ...
+    return json.loads(toStr(b_jval));
+
+def test_signWrap (value, secret):
+    assert signUnwrap(signWrap(value, secret), secret) == value;
 
 ############################################################
 # Request: #################################################
 ############################################################
 
 def buildRequest (environ):
-    req = DotDict({});
+    req = dotsi.fy({});
     
     req.getEnviron = lambda: environ;
-    req.getPathInfo = lambda: environ.get("PATH_INFO") or "/";
-    req.getVerb = lambda: environ.get("REQUEST_METHOD", "GET").upper();
+    
+    def ekey (key, default=None):
+        # Utf8-friendly wrapper around environ.
+        if key not in environ: return default;
+        return latin1_to_utf8(environ[key]);
+        ##Consider::
+        #value = environ[key];
+        #if value is str: return latin1_to_utf8(value);
+        #return value;
+    req._ekey = ekey;
+    
+    req.getPathInfo = lambda: ekey("PATH_INFO", "/");
+    req.getVerb = lambda: ekey("REQUEST_METHOD", "GET").upper();
     req.wildcards = [];
     req.matched = None;
-    
-    _cookieJar = http.cookies.SimpleCookie(                                  # !! Not req._cookieJar to avoid auto-DotDicting.
-        environ.get("HTTP_COOKIE", "")
-    );
-    req._getCookieJar = lambda: _cookieJar;
+    req.cookieJar = http.cookies.SimpleCookie(ekey("HTTP_COOKIE", ""));
     
     req.app = None;
     req.response = None;
@@ -139,32 +195,31 @@ def buildRequest (environ):
     
     req.bodyBytes = b"";
     def fillBody ():
-        filike = environ["wsgi.input"];
-        req.bodyBytes = filike.read(MAX_REQUEST_BODY_SIZE);
+        fileLike = environ["wsgi.input"]; # Not ekey(.)
+        req.bodyBytes = fileLike.read(MAX_REQUEST_BODY_SIZE);
         assert type(req.bodyBytes) is bytes;
-        if filike.read(1) != b"":
+        if fileLike.read(1) != b"":
             raise HttpError("<h2>Request Too Large</h2>", 413, "requestTooLarge");
     fillBody(); # Immediately called.
-    #print(req.bodyBytes);
     
     req.url = "";
     req.splitUrl = urllib.parse.urlsplit("");
     def reconstructUrl ():
         # Scheme:
-        scheme = environ.get("wsgi.url_scheme") or "http";
+        scheme = ekey("wsgi.url_scheme", "http");
         # Netloc:
-        netloc = environ.get("HTTP_HOST");
+        netloc = ekey("HTTP_HOST");
         if not netloc:
-            netloc = environ.get("SERVER_NAME");
-            port = environ.get("SERVER_PORT");
+            netloc = ekey("SERVER_NAME");
+            port = ekey("SERVER_PORT");
             if port and port != ("80" if scheme == "http" else "443"):
                 netloc = netloc + ":" + port;
         # Path:
-        path = (environ.get("SCRIPT_NAME", "")  +                       # TODO: Need to quote(.)?
-            environ.get("PATH_INFO", "")        #+
+        path = (    # ? urllib.parse.un/quot() ?
+            ekey("SCRIPT_NAME", "")  + ekey("PATH_INFO", "")
         );
         # Query:
-        query = environ.get("QUERY_STRING", "")
+        query = ekey("QUERY_STRING", "")
         # Fragment:
         fragment = "";
         # Full URL:
@@ -180,13 +235,13 @@ def buildRequest (environ):
         cgikey = name.upper().replace("-", "_");
         if cgikey not in ["CONTENT_TYPE", "CONTENT_LENGTH"]:
             cgikey = "HTTP_" + cgikey;
-        return environ.get(cgikey);
+        return ekey(cgikey);
     req.getHeader = getHeader;
     req.contentType = getHeader("CONTENT_TYPE");
     
     def parseQs (qs):
         "Parses query string into dict.";
-        return dict(urllib.parse.parse_qsl(qs));                        # parse_qsl(.) returns list of 2-tuples, then dict-ify
+        return dict(urllib.parse.parse_qsl(qs, keep_blank_values=True));    # parse_qsl(.) returns list of 2-tuples, then dict-ify
     req.qdata = parseQs(req.splitUrl.query);    # IMMEDIATE.
     
     
@@ -194,6 +249,7 @@ def buildRequest (environ):
         assert req.contentType.startswith("multipart/form-data");
         parsedData = {};
         miniEnviron = {
+            # Not ekey(.), use environ.get(.) directly:
             "QUERY_STRING": environ.get("QUERY_STRING"),
             "REQUEST_METHOD": environ.get("REQUEST_METHOD"),
             "CONTENT_TYPE": environ.get("CONTENT_TYPE"),
@@ -231,12 +287,19 @@ def buildRequest (environ):
         else:
             pass;   # Other contentType, ignore.
     fill_fdata();       # Immediately called.
-    
-    def getCookie (name):
-        morsel = _cookieJar.get(name);
+
+    def getUnsignedCookie (name):
+        morsel = req.cookieJar.get(name);
         return morsel.value if morsel else None;
-    req.getCookie = getCookie;
+    req.getUnsignedCookie = getUnsignedCookie;
     
+    def getCookie (name, secret=None):
+        uVal = getUnsignedCookie(name); # Unsigned-ready val.
+        if not uVal: return None;
+        if not secret: return uVal;
+        return signUnwrap(uVal, secret);
+    req.getCookie = getCookie;
+
     # Return built `req`:
     return req;
 
@@ -245,12 +308,11 @@ def buildRequest (environ):
 ############################################################
 
 def buildResponse (start_response):
-    res = DotDict({});
+    res = dotsi.fy({});
     res.statusLine = "200 OK";
     res.contentType = "text/html; charset=UTF-8";
     res._headerMap = {};
-    _cookieJar = http.cookies.SimpleCookie();                               # !! Not req._cookieJar to avoid auto-DotDicting.
-    res._getCookieJar = lambda: _cookieJar;
+    res.cookieJar = http.cookies.SimpleCookie();
     #res._bOutput = b"";
    
     res.update({"app": None, "request": None});
@@ -279,16 +341,24 @@ def buildResponse (start_response):
         mapli(headerList, lambda pair: setHeader(*pair));
     res.setHeaders = setHeaders;
     
-    def setCookie (name, val, opt=None):
-        _cookieJar[name] = val;
-        morsel = _cookieJar[name]
+    def setUnsignedCookie (name, value, opt=None):
+        assert type(value) is str;
+        res.cookieJar[name] = value;
+        morsel = res.cookieJar[name]
         assert type(morsel) is http.cookies.Morsel;
         opt = opt or {};
         dictDefaults(opt, {
-            "path": "/", "secure": True, "httponly": True,
+            "path": "/", "httponly": True, #"secure": True,
         });
         for optKey, optVal in opt.items():
             morsel[optKey] = optVal;
+        return value;   # `return` helps w/ testing.
+    res.setUnsignedCookie = setUnsignedCookie;
+
+    def setCookie (name, value, secret=None, opt=None):
+        uVal = signWrap(value, secret) if secret else value;    # Unsigned-ready val.
+        setUnsignedCookie(name, uVal, opt);
+        return uVal;    # `return` helps w/ testing.
     res.setCookie = setCookie;
     
     #def getCookie (name, val):
@@ -305,14 +375,11 @@ def buildResponse (start_response):
                 return f.read();
         except FileNotFoundError:
             raise HttpError("<h2>File Not Found<h2>", 404, "fileNotFound");
-            #res.statusLine = "404 Not Found";
-            #res.contentType = "text/html";
-            #return "<h3>File Not Found</h3>";
     res.staticFile = staticFile;
     
     def redirect (url):
         res.statusLine = "302 Found";                       # Better to use '303 See Other' for HTTP/1.1 environ['SERVER_PROTOCOL']
-        res.setHeader("Location", url);                     # but 302 is backward compataible.
+        res.setHeader("Location", url);                     # but 302 is backward compataible, and doesn't need access to req object.
         return b"";
     res.redirect = redirect;
 
@@ -324,7 +391,7 @@ def buildResponse (start_response):
             return x;
         if isinstance(x, (dict, list)):
             res.contentType = "application/json";
-            return json.dumps(x).encode("utf8");            # ? latin1
+            return json.dumps(x).encode("utf8");            # ? latin1 ?
         # otherwise ...
         return str(x).encode("utf8");
     
@@ -333,7 +400,7 @@ def buildResponse (start_response):
         headerList = (
             list(res._headerMap.items()) +
             mapli(
-                _cookieJar.values(),            
+                res.cookieJar.values(),            
                 lambda m: ("SET-COOKIE", m.OutputString()),
             ) +
             list({
@@ -343,7 +410,13 @@ def buildResponse (start_response):
         );
         #print("res.statusLine = ", res.statusLine);
         #pprint.pprint(headerList);
-        start_response(res.statusLine, headerList);
+        latin1_headerList = [];
+        for (name, value) in headerList:
+            latin1_headerList.append((name, utf8_to_latin1(value)));
+        #pprint.pprint(latin1_headerList);
+        start_response(
+            utf8_to_latin1(res.statusLine), latin1_headerList,
+        );
         return [bBody];
     res._finish = _finish;
     
@@ -356,10 +429,8 @@ def buildResponse (start_response):
 
 def detectRouteMode (route_path):
     "Auto-detects routing mode from `route_path`.";
-    if "(" in route_path and ")" in route_path:
-        return "re";
-    if "*" in route_path:
-        return "wildcard";
+    if "(" in route_path and ")" in route_path: return "re";
+    if "*" in route_path: return "wildcard";
     return "exact";
 
 def validateWildcardPath (wPath):
@@ -383,7 +454,7 @@ def buildRoute(verb, path, fn, mode=None, name=None):
     assert mode in ["re", "wildcard", "exact"];
     if mode == "wildcard":
         assert validateWildcardPath(path);
-    return DotDict({
+    return dotsi.fy({
         "verb": verb,  "path": path,  "fn": fn,
         "mode": mode,  "name": name,
     });
@@ -436,8 +507,6 @@ def checkRouteMatch (route, req):
     aPath = req.getPathInfo();  # Actual Path
     if route.mode == "exact":
         return route.path == aPath;
-        # success = route.path == aPath;
-        # return DotDict({"success": success, "wildcards": [], "matched": None});
     if route.mode == "wildcard":
         return checkWildcardMatch(route.path, aPath, req);
     return checkReMatch(route.path, aPath, req);
@@ -448,8 +517,9 @@ def checkRouteMatch (route, req):
     
 
 def buildApp ():
-    app = DotDict({});
+    app = dotsi.fy({});
     app.routeList = [];
+    app.pluginList = [];
     
     def addRoute(verb, path, fn, mode=None, name=None):
         "Add a route handler `fn` against `path`, for `verb`.";
@@ -464,6 +534,17 @@ def buildApp ():
             return fn;
         return identityDecorator;
     app.route = route;
+    
+    def install (plugin):
+        app.pluginList.append(plugin);
+    app.install = install;
+    
+    def plugRoute (matchedRoute):
+        pfn = matchedRoute.fn;  # pfn: Plugged fn.
+        for plugin in app.pluginList:
+            pfn = plugin(pfn);  # Apply each plugin.
+        return pfn;
+
     
     def mkDefault_viloErrTag_handler (code, msg=None):
         statusLine = getStatusLineFromCode(code);
@@ -536,11 +617,12 @@ def buildApp ():
         #print(req.bodyBytes);
         try:
             mRoute = getMatchingRoute(req);
-            handlerOut = mRoute.fn(req, res);
+            pfn = plugRoute(mRoute);
+            handlerOut = pfn(req, res);
         except HttpError as e:
             res.statusLine = e.statusLine;
             if e.viloTag in app.viloErrorTagMap:
-                efn = app.viloErrorTagMap[e.viloTag];
+                efn = app.viloErrorTagMap[e.viloTag];       # <-- TODO: Consider plugin application?
                 handlerOut = efn(req, res, e);
             else:            
                 handlerOut = e.body;
@@ -548,7 +630,7 @@ def buildApp ():
             #stacktrace = traceback.format_exc();
             #print(stacktrace);
             httpErr = HttpError("<h2>Internal Server Error</h2>", 500, "unexpectedError");
-            efn = app.viloErrorTagMap[httpErr.viloTag];
+            efn = app.viloErrorTagMap[httpErr.viloTag];     # <-- TODO: Consider plugin application?
             handlerOut = efn(req, res, orgErr);
         return res._finish(handlerOut);
     app.wsgi = wsgi;
