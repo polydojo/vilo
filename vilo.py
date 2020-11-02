@@ -34,7 +34,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.3-preview";  # Req'd by flit.
+__version__ = "0.0.3";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -117,12 +117,12 @@ def toStr (x, enc="utf8"):
     if type(x) is bytes: return x.decode(enc);
     raise TypeError("Expected `bytes` (or `str`), not `%s`" % (type(x),));
 
-def latin1_to_utf8 (s): # TODO: Use for consuing req-headers.
+def latin1_to_utf8 (s):
     "Useful for consuing request headers.";
     assert type(s) is str;  # str i/p, str o/p.
     return s.encode("latin1").decode("utf8");
 
-def utf8_to_latin1 (s): # TODO: Use for producing resp-headers.
+def utf8_to_latin1 (s):
     "Useful for producing response headers.";
     assert type(s) is str;  # str i/p, str o/p.
     return s.encode("utf8").decode("latin1");
@@ -320,14 +320,14 @@ def buildResponse (start_response):
         res.update({"app": appObject, "request": reqObject});
     res.bindApp = bindApp;
     
-    def setHeader (name, val):
+    def setHeader (name, value):
         name = name.strip().upper();
         if name == "CONTENT-TYPE":
-            res.contentType = val;
+            res.contentType = value;
         elif name == "CONTENT-LENGTH":
             raise Exception("The Content-Length header will be automatically set.");
         else:
-            res._headerMap[name] = val;
+            res._headerMap[name] = value;
     res.setHeader = setHeader;
     
     def getHeader (name):
@@ -361,7 +361,7 @@ def buildResponse (start_response):
         return uVal;    # `return` helps w/ testing.
     res.setCookie = setCookie;
     
-    #def getCookie (name, val):
+    #def getCookie (name, value):
     #    pass; # ??? For getting just-res-set cookies.
     #res.getCookie = getCookie;
     
@@ -622,7 +622,7 @@ def buildApp ():
         except HttpError as e:
             res.statusLine = e.statusLine;
             if e.viloTag in app.viloErrorTagMap:
-                efn = app.viloErrorTagMap[e.viloTag];       # <-- TODO: Consider plugin application?
+                efn = app.viloErrorTagMap[e.viloTag];       # <-- TODO: Consider plugin application? (Leaning toward 'No'.)
                 handlerOut = efn(req, res, e);
             else:            
                 handlerOut = e.body;
@@ -630,7 +630,7 @@ def buildApp ():
             #stacktrace = traceback.format_exc();
             #print(stacktrace);
             httpErr = HttpError("<h2>Internal Server Error</h2>", 500, "unexpectedError");
-            efn = app.viloErrorTagMap[httpErr.viloTag];     # <-- TODO: Consider plugin application?
+            efn = app.viloErrorTagMap[httpErr.viloTag];     # <-- TODO: Consider plugin application? (Leaning toward 'No'.)
             handlerOut = efn(req, res, orgErr);
         return res._finish(handlerOut);
     app.wsgi = wsgi;

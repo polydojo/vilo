@@ -196,76 +196,48 @@ Generally speaking, there's *no need* to explicitly pass `mode`, as `app.route(.
 - `"wildcard":` wildcard segment matching, explained above.
 - `"exact"`: exact path matching, based on `==` operator.
 
-Dot-Accessible Dictionary (`DotDict`)
+Dot-Accessible Dictionary (`dotsi.Dict`)
 -----------------------------------------------
 
-Vilo makes heavy use of dot-accessible dictionaries. In fact, in all previous examples, `app`, `req` and `res` are all dot-accessible dictionaries!
+Vilo uses [Dotsi](https://github.com/polydojo/dotsi) for dot-accessible dictionaries. In fact, in all previous examples, `app`, `req` and `res` are all dot-accessible dictionaries!
 
-> **Sidebar:**
-> 
-> Vilo relies on [`Addict`](https://github.com/mewwts/addict), a great library for dot-accessible dictionaries. By default, `Addict` does *NOT* raise `KeyError` for missing keys, which can lead to hard-to-debug errors. Vilo defines and uses `DotDict`, a subclass of `Addict` that raises `KeyError` properly.
-> 
-> *Philosophy:* The Polydojo team strongly favours functional programming over classical OOP. *As far as possible*, we avoid writing classes. This is super-easy in JavaScript, especially because object properties are dot-accessible. `Addict` allows us to bring the same ease to Python.
-
-**`DotDict` Usage:**
+**`dotsi` Usage:**
 ```py
->>> from vilo import DotDict
->>> 
->>> dd = DotDict({})
->>> dd
-{}
->>> dd.foo = "foo"
->>> dd.foo
-'foo'
->>> dd
-{'foo': 'foo'}
->>> dd.bar = "bar"
->>> dd.bar
-'bar'
->>> dd
-{'foo': 'foo', 'bar': 'bar'}
->>> dd.baz
-Traceback (most recent call last):
-  File "<stdin>", line 1, in <module>
-    ... (truncated) ...
-  File "/...(cut).../vilo.py", line ..., in __missing__
-    raise KeyError(key);
-KeyError: 'baz'
->>> 
+import dotsi
+
+d = dotsi.fy({"foo": "bar"})
+print(d.foo);	# Same as d['foo']
+# Output: bar
+
+d.baz = [{"key":"a"}, {"key":"b"}] # Like d['baz'] = ..
+print(d.baz[0].key)
+# Output: a
 ```
+For more examples, check out Dotsi's docs, linked above.
+
+ **Sidebar: Functional vs OOP**  
+ The Polydojo team strongly favours functional programming over classical OOP. *As far as possible*, we avoid writing classes. This is super-easy in JavaScript, especially because object properties are dot-accessible; Dotsi allows us to bring the same ease to Python.
 
 HTML Escaping & `%s`-Formatting
 -----------------------------------------------
 
-**Use `vilo.esc(string)` for escaping HTML:**
+Use `vilo.esc(string)` for escaping HTML:
 - `vilo.esc('foo')` => `'foo'`
-- `vilo.esc('<b> HELLO </b>')`
-  => `'&lt;b&gt; HELLO &lt;/b&gt;'`
-- `vilo.esc('<script> alert("XSS"); </script>')`
-  => `'&lt;script&gt; alert(&quot;XSS&quot;); &lt;/script&gt;'`
+- `vilo.esc('<b> Hi </b>')`
+  => `'&lt;b&gt; Hi &lt;/b&gt;'`
+- `vilo.esc('<script> xss() </script>')`
+  => `'&lt;script&gt; xss() &lt;/script&gt;'`
 
-**Use `vilo.escfmt(string, data)` for escape-wrapped, `%s`-based formatting.**
+Use `vilo.escfmt(string, data)` for escape-wrapped, `%s`-based formatting. Or better yet, try [**Qree**](https://github.com/polydojo/qree), our tiny but might templating engine.
 
 Working With Forms
 --------------------------
 - Use `req.qdata` to access *q*uery string parameters.
 -  Use `req.fdata` to access POSTed *f*orm data.
 - POSTed multipart/form-data is also available via `req.fdata`.
-- Both `req.qdata` and `req.fdata` are of type `DotDict`.
+- Both `req.qdata` and `req.fdata` are of type `dotsi.Dict`.
 
-Here are a few examples of Vilo in action:
-
-**1. Simple Greeter, Using Wildcard:**
-```py
-import vilo; app = vilo.buildApp(); wsgi = app.wsgi;
-
-@app.route("GET", "/hello/*")
-def get_hello_name (req, res):
-    name = req.wildcards[0];
-    return "Hello, " + vilo.esc(name);
-```
-
-**2. Factorial Example, Using `GET`:**
+**Factorial Form Example:**
 ```py
 import vilo; app = vilo.buildApp(); wsgi = app.wsgi;
 
@@ -289,16 +261,6 @@ def get_factorial (req, res):
         <a href="javascript: history.back();">Back</a>
     """, [n, facto(n)]);
 ```
-
-Working With JSON
--------------------------
-Vilo makes it easy to consume and produce JSON. In route handlers:  
-- **JSON Requests:**  POSTed `application/json` data is available as `req.fdata`.
-- **JSON Responses:** Returning a `dict` or `list` produces an `application/json` response.
-
-Quick Plug
---------------
-Vilo built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by Sumukh Barve. If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
 
 Errors & Redirects
 ------------------------
@@ -329,90 +291,109 @@ def get_post (req, res):
 - `body` (required): The response body. Similar to the return value for non-error responses. If it's a `dict` or `list`, a JSON response is produced.
 - `statusLine` (optional): A status line like "404 Not Found" or "403 Forbidden"; or alternatively, an integer code like 404 or 405. (Defaults to 404.)
 
+Quick Plug
+--------------
+Vilo is built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by Sumukh Barve. If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
 
-TestBin: In-Memory Pastebin App:
+Headers
+-----------
+
+**Set Response Headers:**
+
+Use `res.setHeader(name, value)` for setting a response header. (Params `name` and `value` respectively correspond to the name and value of the header.)
+
+Or use `res.setHeaders(.)` for setting multiple headers at once by passing either a dict or a list of `(name, value)` pairs.
+
+```py
+@app.route("GET", "/foo.txt")
+def get_fooTxt (req, res):
+	res.setHeaders({
+		"Content-Type": "text/plain",
+		"Cache-Control": "no-store",
+	});
+	return "Here's some foo text.";
+```
+
+Header Shortcuts:  
+- Use `res.contentType = someValue` instead of `res.setHeader("Content-Type", someValue)`.
+- Use `res.setCookie(.)` for setting cookies, instead of setting the `"Set-Cookie"` header. More on this below.
+
+**Get Request Headers:**
+
+Use `req.getHeader(name)` to get a request header. (Param `name` corresponds to the header's name.) If there's no such header, `None` is returned.
+
+```py
+@app.route("GET", "/api/foo")
+def get_apiFoo (req, res):
+	reqType = req.getHeader("Content-Type");
+	if reqType != "application/json":
+		raise vilo.error("Only JSON requsts are valid.");
+	# otherwise ...
+	return yourLogic_doFoo();
+```
+
+*Note:* Use `req.getCookie(.)` (documented below) for getting request cookies. No need to deal with the `"Cookie"` header directly.
+
+Cookies
+----------
+
+**Set Response Cookies:**
+
+Use `res.setCookie(name, value, [secret, opt])` for setting response cookies. Params `name` and `value` respectively correspond to the name and value of the cookie.
+- Optional param `secret` may be a string; and is used to sign the cookie, if passed.
+- Optional param `opt` may be a dict of cookie options compatible with Python's [`http.cookies.Morsel`](https://docs.python.org/3/library/http.cookies.html#http.cookies.Morsel).
+
+```py
+@app.route("GET", "/home")
+def get_home (req, res):
+	req.setCookie("visitedHome", "Yes");
+	return "<h1>You're Home!</h1>";
+```
+
+**Note:** By default, Vilo sets `HttpOnly` cookies with `Path="/"`. For custom behavior, pass `opt={"httponly": False, "path": "/custom"}`. Of course, you may also pass other Morsel-compatible options.
+
+**Warning:**  Even when `secret` is passed, it is only used to *sign* the cookie. The cookie is **NOT** *encrypted*. Signing **DOES NOT** hide or obscure the cookie in any way. As such, one must **NEVER** store confidential information in cookies.
+
+**Get Request Cookies:**
+
+Use `req.getCookie(name, [secret])` for getting request cookies. Param `name` is the cookie name while `secret` should match the secret used while setting the cookie.
+- If the named cookie exists (and is valid), it's value is returned, else `None`.
+- If `secret` is passed but the signature-check fails, `None` is returned (regardless of whether the cookie exists).
+
+```py
+@app.route("GET", "/visitCounter")
+def get_visitCounter (req, res):
+	count = int(req.getCookie("visitCount") or 0);
+	res.setCookie("visitCount", str(count + 1))
+	return "Number of visits: %s" % (count+1);
+```
+
+Working With JSON
+-------------------------
+Vilo makes it easy to consume and produce JSON. In route handlers:  
+- **JSON Requests:**  POSTed `application/json` data is available as `req.fdata`.
+- **JSON Responses:** Returning a `dict` or `list` produces an `application/json` response.
+
+```py
+@app.route("GET", "/hello_json")
+def get_sample_json (req, res):
+	return {"hello": "json"};
+	# Will produce JSON response, with:
+	#	Content-Type: application/json
+
+```
+
+TestBin: In-Memory Pastebin App
 ---------------------------------------------
 
-The following example creates a super-simple, in-memory [pastebin](https://en.wikipedia.org/wiki/Pastebin) app. Instead of connecting to a database or file-storage system, the app uses a `dict` for (temporarily) storing pastes.
+Check out [`testbin.py`](https://github.com/polydojo/vilo/blob/master/testing.py) a super-simple, in-memory [pastebin](https://en.wikipedia.org/wiki/Pastebin) app. Instead of connecting to a database or file-storage system, the app uses a `dict` for (temporarily) storing pastes.
 
-`testbin.py`:
-```py
-import json;
-import vilo; app = vilo.buildApp(); wsgi = app.wsgi;
-
-pasteMap = {};  # In-memory paste storage.
-
-@app.route("GET", "/")
-def get_homepage (req, res):
-    return vilo.escfmt("""
-        <h2>TestBin: In-Memory Pastebin</h2>
-        <p>
-            Visit <a href="/compose">/compose</a> to compose a new paste.
-        </p>
-        <p>
-            Go to /paste/{Paste-ID-here} to view a paste.
-        </p>
-        <pre>Paste IDs: %s</pre>
-    """, json.dumps(list(pasteMap.keys()), indent=4));
-
-@app.route("GET", "/compose")
-def get_compose (req, res):
-    return """
-        <h2>Compose Paste:</h2>
-        <form method="POST" style="max-width: 500px;">
-            <input type="text" name="title" placeholder="Title" style="width: 100%;">
-            <br><br>
-            <textarea name="body" placeholder="Body ..." rows="10" style="width: 100%;"></textarea>
-            <br><br>
-            <button>Submit</button>
-        </form>
-        <br>
-        <p><a href="/">&lt; Home</a></p>
-    """;
-
-@app.route("POST", "/compose")
-def post_compose (req, res):
-    title = req.fdata.get("title") or "(Blank Title)";
-    body = req.fdata.get("body") or "(Blank Body)";
-    pasteId = len(pasteMap) + 1;
-    pasteMap[pasteId] = vilo.DotDict({
-        "id": pasteId, "title": title, "body": body,
-    });
-    assert len(pasteMap) == pasteId;
-    return vilo.escfmt("""
-        <h3>Paste Created!</h3>
-        <p>
-            Visit <a href="/paste/%s">/paste/%s</a> to view your paste,
-            or <a href="/compose">/compose</a> to compose another.
-        </p>
-        <hr>
-        <br>
-        <p><a href="/">&lt; Home</a></p>
-    """, [pasteId, pasteId]);
-
-@app.route("GET", "/paste/*")
-def get_paste (req, res):
-    pid = req.wildcards[0];
-    if not (pid.isdigit() and int(pid) in pasteMap):
-        raise vilo.error("<h2>No such paste.</h2>", 404);
-    paste = pasteMap[int(pid)];
-    return vilo.escfmt("""
-        <pre>Paste ID: %(id)s</pre>
-        <h1>%(title)s</h1>
-        <pre>%(body)s</h1>
-        <hr>
-        <br>
-        <p><a href="/">&lt; Home</a></p>
-    """, paste);
-```
-The module `testbin.py` is included in the Github repo. You can run it as follows:
+**Running:**  
+The `testbin.py` module is included in Vilo's GitHub repo. The app may be run as follows:
 ```
 gunicorn testbin:wsgi --reload
 ```
-
-TODO [Docs]
------------------
-Write documentation regarding cookies, default errors and [Qree templating](https://github.com/polydojo/qree).
+Then, head over to `localhost:8080` in your favorite browser.
 
 Licensing
 ------------

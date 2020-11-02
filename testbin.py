@@ -36,7 +36,7 @@ def post_compose (req, res):
     title = req.fdata.get("title") or "(Blank Title)";
     body = req.fdata.get("body") or "(Blank Body)";
     pasteId = len(pasteMap) + 1;
-    pasteMap[pasteId] = vilo.DotDict({
+    pasteMap[pasteId] = vilo.dotsi.fy({
         "id": pasteId, "title": title, "body": body,
     });
     assert len(pasteMap) == pasteId;
