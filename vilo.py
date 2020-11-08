@@ -3,6 +3,8 @@ Vilo: Simple, unopinionated Python web framework.
 
 Copyright (c) 2020 Polydojo, Inc.
 
+SOFTWARE LICENSING
+------------------
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -14,6 +16,11 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+NO TRADEMARK RIGHTS
+-------------------
+The above software licensing terms DO NOT grant any right in the
+trademarks, service marks, brand names or logos of Polydojo, Inc.
 """;
 
 import os;
@@ -34,7 +41,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.3";  # Req'd by flit.
+__version__ = "0.0.4-preview";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -66,14 +73,14 @@ def getStatusLineFromCode (code):
     return httpCodeLineMap.get(code) or "404 Not Found";
 
 class HttpError (Exception):
-    def __init__ (self, body, statusLine=404, viloTag=None):
+    def __init__ (self, body, statusLine=404, _fwCode=None):
         self.body = body;
         self.statusLine = (statusLine
             if type(statusLine) is not int
             else getStatusLineFromCode(statusLine)#,                        # no-comma-avoid-tuple
         );
-        self.viloTag = viloTag;
-error = HttpError;
+        self._fwCode = _fwCode;
+error = HttpError;  # Alias, short.
 
 
 KB = 1024;
@@ -147,7 +154,7 @@ def signUnwrap (signed, secret):
     if not (type(signed) is str and toStr(B_SIGN_SEP) in signed):
         return None;
     # otherwise ...
-    b_secret = toBytes(secret)
+    b_secret = toBytes(secret);
     b_signed = toBytes(signed);
     b64_sig, b64_jval = b_signed.split(B_SIGN_SEP, 1);
     b_jval = base64.b64decode(b64_jval);
@@ -199,7 +206,7 @@ def buildRequest (environ):
         req.bodyBytes = fileLike.read(MAX_REQUEST_BODY_SIZE);
         assert type(req.bodyBytes) is bytes;
         if fileLike.read(1) != b"":
-            raise HttpError("<h2>Request Too Large</h2>", 413, "requestTooLarge");
+            raise HttpError("<h2>Request Too Large</h2>", 413, "request_too_large");
     fillBody(); # Immediately called.
     
     req.url = "";
@@ -373,8 +380,8 @@ def buildResponse (start_response):
             with open(filepath, "rb") as f:
                 res.contentType = mimeType;
                 return f.read();
-        except FileNotFoundError:
-            raise HttpError("<h2>File Not Found<h2>", 404, "fileNotFound");
+        except IOError:
+            raise HttpError("<h2>File Not Found<h2>", 404, "file_not_found");
     res.staticFile = staticFile;
     
     def redirect (url):
@@ -460,37 +467,30 @@ def buildRoute(verb, path, fn, mode=None, name=None):
     });
 
 def checkWildcardMatch (wPath, aPath, req):
-    # 1. Prelims:
+    ## Step 1. Prelims:
     wildcards = [];
     wSlashCount = wPath.count("/");
     aSegLi = aPath.split("/", wSlashCount);
     wSegLi = wPath.split("/", wSlashCount);
     if len(aSegLi) != len(wSegLi):
         return False;
-    # 
-    # 2. Match non-last segment:
+    ## Step 2. Match non-last segment:
     for (aSeg, wSeg) in zip(aSegLi[ : -1], wSegLi[ : -1]):
-        assert (wSeg == "*") or ("*" not in wSeg);
+        assert (wSeg == "*") or ("*" not in wSeg);         # '*' or *-less
         assert "/" not in aSeg;
+        if wSeg == "*" and aSeg == "": return False;       # * doesn't match ''
+        if wSeg != "*" and wSeg != aSeg: return False;     # non-eq => no match
         if wSeg == "*":
             wildcards.append(aSeg);
-        elif wSeg != aSeg:
-            return False;
-    
-    # 3. Match last segment or multi-segment:
+    ## Step 3. Match last segment or multi-segment:
     laSeg, lwSeg = aSegLi[-1], wSegLi[-1];
-    assert (lwSeg == "*") or (lwSeg == "**") or ("*" not in lwSeg);
-    if lwSeg == "*":
-        if "/" in laSeg:
-            return False;
-        else:
-            wildcards.append(laSeg);
-    elif lwSeg == "**":
+    assert (lwSeg in ["*", "**"]) or ("*" not in lwSeg);   # * or ** or *-less
+    if lwSeg == "*" and "/" in laSeg: return False;        # '*' excludes '/'
+    if "*" in lwSeg and laSeg == "": return False;         # */** don't match ''
+    if "*" not in lwSeg and lwSeg != laSeg: return False;  # non-eq => no match
+    if "*" in lwSeg:
         wildcards.append(laSeg);
-    elif wSeg != aSeg:
-        return False;
-    #
-    # 4. Finish:
+    ## Step 4. Finish:
     req.wildcards = wildcards;
     return True;
 
@@ -521,19 +521,24 @@ def buildApp ():
     app.routeList = [];
     app.pluginList = [];
     
-    def addRoute(verb, path, fn, mode=None, name=None):
+    # Route Adding: ::::::::::::::::::::::::::::::::::::::::
+    
+    def addRoute (verb, path, fn, mode=None, name=None, top=False):
         "Add a route handler `fn` against `path`, for `verb`.";
+        index = 0 if top else len(app.routeList);
         route = buildRoute(verb, path, fn, mode, name);
-        app.routeList.append(route);
+        app.routeList.insert(index, route);
     app.addRoute = addRoute;
             
-    def route (verb, path, mode=None, name=None):
-        "Decorator for adding routes.";
+    def route (verb, path, mode=None, name=None, top=False):
+        "Produces decorator for adding routes.";
         def identityDecorator (fn):
-            addRoute(verb, path, fn, mode, name);
+            addRoute(verb, path, fn, mode, name, top);
             return fn;
         return identityDecorator;
     app.route = route;
+    
+    # Plugins: :::::::::::::::::::::::::::::::::::::::::::::
     
     def install (plugin):
         app.pluginList.append(plugin);
@@ -544,9 +549,15 @@ def buildApp ():
         for plugin in app.pluginList:
             pfn = plugin(pfn);  # Apply each plugin.
         return pfn;
-
     
-    def mkDefault_viloErrTag_handler (code, msg=None):
+    # Errors: ::::::::::::::::::::::::::::::::::::::::::::::
+
+    app.inDebugMode = False;
+    def setDebug (boolean):
+        app.inDebugMode = bool(boolean);
+    app.setDebug = setDebug;
+    
+    def mkDefault_frameworkError_handler (code, msg=None):
         statusLine = getStatusLineFromCode(code);
         def defaultErrorHandler (xReq, xRes, xErr):
             if xReq.contentType == "application/json":
@@ -555,40 +566,40 @@ def buildApp ():
             return escfmt("<h2>%s</h2><pre>%s</pre>", [statusLine, msg]);
         return defaultErrorHandler;
     
-    app.inDebugMode = False;
-    def setDebug (boolean):
-        app.inDebugMode = bool(boolean);
-    app.setDebug = setDebug;
-
-    def default_viloErrTag_handler_unexpectedError (xReq, xRes, xErr):
-        print();
-        traceback.print_exc();
-        print();
+    def default_frameworkError_unexpected (xReq, xRes, xErr):
         if not app.inDebugMode:
             return "<h2>500 Internal Server Error</h2>";
         # otherwise ...
         return escfmt("""
             <h2>500 Internal Server Error</h2>
+            <p>
+                <b>NB:</b> Disable debug mode to hide traceback below.<br>
+                . . . . It should <b><i>ALWAYS</i></b> be disabled in production.
+            </p>
             <hr>
-            <h3>Traceback</h3>
-            <pre>%s</pre>
-        """, traceback.format_exc());
+            <pre style="font-size: 20px; font-weight: bold;">%s</pre>
+            <pre style="font-size: 15px;">%s</pre>
+        """, [
+            repr(xErr), traceback.format_exc(),
+        ]);
         
-    
-    app.viloErrorTagMap = {
-        "routeNotFound": mkDefault_viloErrTag_handler(404, "No such route."),
-        "fileNotFound": mkDefault_viloErrTag_handler(404, "No such file."),
-        "requestTooLarge": mkDefault_viloErrTag_handler(413, "Request too large."),
-        "unexpectedError": default_viloErrTag_handler_unexpectedError,
+    app.frameworkErrorHandlerMap = {
+        "route_not_found":  mkDefault_frameworkError_handler(404, "No such route."),
+        "file_not_found":   mkDefault_frameworkError_handler(404, "No such file."),
+        "request_too_large": mkDefault_frameworkError_handler(413, "Request too large."),
+        "unexpected_error": default_frameworkError_unexpected,
     };
-    def decorator_supply_viloErrorTagHandler (viloTag):
-        if viloTag not in app.viloErrorTagMap:
-            raise KeyError(viloTag);
+    def frameworkError (_fwCode):
+        "Produces decorator for custom framework-error handling.";
+        if _fwCode not in app.frameworkErrorHandlerMap:
+            raise KeyError(_fwCode);
         def identityDecorator (oFunc):
-            app.viloErrorTagMap[viloTag] = oFunc;
+            app.frameworkErrorHandlerMap[_fwCode] = oFunc;
             return oFunc;
         return identityDecorator;
-    app.onViloErrorTag = decorator_supply_viloErrorTagHandler;        
+    app.frameworkError = frameworkError;
+    
+    # Route matching, WSGI callable: :::::::::::::::::::::::
     
     def getMatchingRoute (req):
         reqVerb = req.getVerb();
@@ -602,14 +613,11 @@ def buildApp ():
             if reqVerb in rt.verb and checkRouteMatch(rt, req):
                 return rt;
         # otherwise ..
-        raise HttpError("<h2>Route Not Found</h2>", 404, "routeNotFound");
+        raise HttpError("<h2>Route Not Found</h2>", 404, "route_not_found");
     
     def wsgi (environ, start_response):
+        "WSGI callable.";
         #pprint.pprint(environ);
-        #wsgiInput = environ["wsgi.input"];
-        #print('type(wsgiInput) =', type(wsgiInput));
-        #print("wsgiInput =", wsgiInput);
-        #print(dir(wsgiInput));
         req = buildRequest(environ);
         res = buildResponse(start_response);
         req.bindApp(app, res);
@@ -617,21 +625,27 @@ def buildApp ():
         #print(req.bodyBytes);
         try:
             mRoute = getMatchingRoute(req);
-            pfn = plugRoute(mRoute);
+            pfn = plugRoute(mRoute);  # p: Plugin, fn: FuNc
             handlerOut = pfn(req, res);
         except HttpError as e:
             res.statusLine = e.statusLine;
-            if e.viloTag in app.viloErrorTagMap:
-                efn = app.viloErrorTagMap[e.viloTag];       # <-- TODO: Consider plugin application? (Leaning toward 'No'.)
+            if e._fwCode in app.frameworkErrorHandlerMap:
+                efn = app.frameworkErrorHandlerMap[e._fwCode];
+                #TODO/Consider: Apply app plugins? Or NOT!?
                 handlerOut = efn(req, res, e);
             else:            
                 handlerOut = e.body;
-        except Exception as orgErr:
-            #stacktrace = traceback.format_exc();
-            #print(stacktrace);
-            httpErr = HttpError("<h2>Internal Server Error</h2>", 500, "unexpectedError");
-            efn = app.viloErrorTagMap[httpErr.viloTag];     # <-- TODO: Consider plugin application? (Leaning toward 'No'.)
-            handlerOut = efn(req, res, orgErr);
+        except Exception as originalErr:
+            print("\n" + traceback.format_exc() + "\n");
+            # ^ Use `+`, not `,` to avoid space.
+            httpErr = HttpError(
+                "<h2>Internal Server Error</h2>", 500, "unexpected_error",
+            );
+            res.statusLine = httpErr.statusLine;
+            efn = app.frameworkErrorHandlerMap[httpErr._fwCode];
+            # ^ i.e. app.frameworkErrorHandlerMap["unexpected_error"];
+            #TODO/Consider: Apply app plugins? Or NOT!?
+            handlerOut = efn(req, res, originalErr);
         return res._finish(handlerOut);
     app.wsgi = wsgi;
     

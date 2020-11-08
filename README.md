@@ -289,7 +289,7 @@ def get_post (req, res):
 ```
 `vilo.error(.)` takes two parameters:
 - `body` (required): The response body. Similar to the return value for non-error responses. If it's a `dict` or `list`, a JSON response is produced.
-- `statusLine` (optional): A status line like "404 Not Found" or "403 Forbidden"; or alternatively, an integer code like 404 or 405. (Defaults to 404.)
+- `statusLine` (optional): A status line like "404 Not Found" or "403 Forbidden"; alternatively, an integer code like 404 or 405. (Defaults to 404.)
 
 Quick Plug
 --------------
@@ -346,7 +346,7 @@ Use `res.setCookie(name, value, [secret, opt])` for setting response cookies. Pa
 ```py
 @app.route("GET", "/home")
 def get_home (req, res):
-	req.setCookie("visitedHome", "Yes");
+	res.setCookie("visitedHome", "Yes");
 	return "<h1>You're Home!</h1>";
 ```
 

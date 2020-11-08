@@ -65,3 +65,32 @@ def get_paste (req, res):
         <br>
         <p><a href="/">&lt; Home</a></p>
     """, paste);
+
+
+# Error related: :::::::::::::::::::::::::::::::::::::::::::
+
+@app.frameworkError("route_not_found")
+def error_routeNotFound (req, res, err):
+    return "That route couldn't be found.";
+
+@app.route("GET", "/static/**")
+def get_static (req, res):
+    relpath = req.wildcards[0];
+    return res.staticFile("./static/no.such.path/" + relpath);
+
+@app.frameworkError("file_not_found")
+def error_fileNotFound (req, res, err):
+    return "No such file.";
+
+@app.route("GET", "/500")
+def get_500 (req, res):
+    1/0;
+    assert False;
+
+@app.frameworkError("unexpected_error")
+def error_unexpected (req, res, err):
+    return "Something broke.";
+
+@app.route("GET", "/foo/*")
+def get_foo (req, res):
+    return vilo.escfmt("<code>%s</code>", repr(req.wildcards[0]));
