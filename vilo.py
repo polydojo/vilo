@@ -41,7 +41,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.4-preview";  # Req'd by flit.
+__version__ = "0.0.4";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -532,6 +532,12 @@ def buildApp ():
             
     def route (verb, path, mode=None, name=None, top=False):
         "Produces decorator for adding routes.";
+        # TODO: Default `verb` 'GET'? And document param `top`.
+        #if path is None and type(verb) is str and "/" in verb:
+        #    verb, path = "GET", verb;
+        #elif path is None:
+        #    raise TypeError("Routing:: Param `path` shouldn't be `None`.");
+        #assert path is not None;
         def identityDecorator (fn):
             addRoute(verb, path, fn, mode, name, top);
             return fn;

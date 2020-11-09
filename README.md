@@ -14,6 +14,8 @@ pip install vilo
 pip install gunicorn
 ```
 
+Alternatively, [Waitress](https://docs.pylonsproject.org/projects/waitress/en/stable/) is a great option for pure-WSGI apps.
+
 Hello, World!
 ----------------
 
@@ -276,8 +278,10 @@ def redirect_to_boardbell_dot_com (req, res):
 	return res.redirect("https://www.boardbell.com/");
 ```
 
+*NB:* Please be sure to `return res.staticFile(.)`. Skipping **`return`** will likely produce unintended consequences.
+
 **Errors:**
-Raise `vilo.error(.)` to produce a non-200 response.
+Raise `vilo.HttpError(.)` to produce a non-200 response. (Or use `vilo.error(.)`, which is a short alias for the same.)
 ```py
 @app.route("GET", "/post/*")
 def get_post (req, res):
@@ -290,6 +294,51 @@ def get_post (req, res):
 `vilo.error(.)` takes two parameters:
 - `body` (required): The response body. Similar to the return value for non-error responses. If it's a `dict` or `list`, a JSON response is produced.
 - `statusLine` (optional): A status line like "404 Not Found" or "403 Forbidden"; alternatively, an integer code like 404 or 405. (Defaults to 404.)
+
+*NB:* Please be sure to `raise vilo.error(.)`. If **`raise`** isn't used, no error will be produced; it'll be as if no error ever occurred.
+
+**Framework-Level Errors:**
+
+When you explicitly raise a `vilo.HttpError(.)`, it is sent directly to the client, as described above. But sometimes, Vilo itself needs to raise errors; for example, when a route is not found. Other error-types are caught, producing a 500-response.
+
+Framework-level error-handling can be customized via `app.frameworkError(.)`, which is a bit like `app.route(.)`.
+
+To override the default route-not-found behavior:
+```py
+@app.frameworkError("route_not_found")
+def error_routeNotFound (req, res, err):
+	return "Custom Msg: That route wasn't found.";
+```
+Comparing `app.frameworkError(.)` with `app.route(.)`:
+1. Instead of passing a route, you pass a framework-error-code, such as `"route_not_found"`. (Codes are listed below.)
+2. The handler accepts an extra parameter, `err`, which is simply the exception raised (or caught) by Vilo.
+
+Framework-error codes:
+- `route_not_found` (illustrated above)
+- `file_not_found` (with regard to `res.staticFile(.)`)
+- `request_too_large` (this is yet to be documented.)
+- `unexpected_error` (more on this below)
+
+**Handling Unexpected Errors:**
+
+When your application produces an unexpected error, by default, Vilo produces a simple `500 Internal Server Error` response. The default error response may be customized as follows:
+```py
+# Sample error producer:
+@app.get("/err")
+def get_zeroDivErr (req, res):
+	return 1/0;
+
+# Unexpected error handler:
+@app.frameworkError("unexpected_error")
+def handle_unexpectedError (req, res, err):
+	return vilo.esc(repr(err));
+```
+
+On navigating to `"/err"`, instead of the default error message, you should see: `ZeroDivisionError('division by zero')`
+
+**Debug Mode:**
+In debug mode, which can be enabled via `app.setDebug(True)`, the default 500-error handler includes a stack traceback. While this obviously helps with debugging, it can cause security concerns in production. **Caution:** Do not enable debug-mode in production.
+
 
 Quick Plug
 --------------

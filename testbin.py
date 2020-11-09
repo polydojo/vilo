@@ -94,3 +94,7 @@ def error_unexpected (req, res, err):
 @app.route("GET", "/foo/*")
 def get_foo (req, res):
     return vilo.escfmt("<code>%s</code>", repr(req.wildcards[0]));
+
+@app.route("GET", "/redirect-home")
+def get_redirHome (req, res):
+    return res.redirect("/");
