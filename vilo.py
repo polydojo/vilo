@@ -41,7 +41,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.4";  # Req'd by flit.
+__version__ = "0.0.5-preview";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -213,14 +213,16 @@ def buildRequest (environ):
     req.splitUrl = urllib.parse.urlsplit("");
     def reconstructUrl ():
         # Scheme:
-        scheme = ekey("wsgi.url_scheme", "http");
+        scheme = (ekey("HTTP_X_FORWARDED_PROTO") or
+            ekey("wsgi.url_scheme") or "http"   #or
+        );
         # Netloc:
-        netloc = ekey("HTTP_HOST");
+        netloc = ekey("HTTP_X_FORWARDED_HOST") or ekey("HTTP_HOST");
         if not netloc:
             netloc = ekey("SERVER_NAME");
             port = ekey("SERVER_PORT");
             if port and port != ("80" if scheme == "http" else "443"):
-                netloc = netloc + ":" + port;
+                netloc += ":" + port;
         # Path:
         path = (    # ? urllib.parse.un/quot() ?
             ekey("SCRIPT_NAME", "")  + ekey("PATH_INFO", "")
@@ -237,6 +239,9 @@ def buildRequest (environ):
         #print("(req.splitUrl) = ", (req.splitUrl));
         req.url = req.splitUrl.geturl();
     reconstructUrl();   # Immediately called.
+    
+    # TODO: Handle HTTP_X_FORWARDED_FOR, HTTP_X_FORWARDED_PORT,
+    #               HTTP_X_FORWARDED_PREFIX, etc.
     
     def getHeader (name):
         cgikey = name.upper().replace("-", "_");
@@ -552,9 +557,16 @@ def buildApp ():
     
     def plugRoute (matchedRoute):
         pfn = matchedRoute.fn;  # pfn: Plugged fn.
-        for plugin in app.pluginList:
+        for plugin in reversed(app.pluginList):
+            # See note regarding `reversed(.)` below.
             pfn = plugin(pfn);  # Apply each plugin.
         return pfn;
+        # Why use `reversed(.)`?
+        #   If app.install(X), then Y, then Z.
+        #   Then, without reversed(): pfn = X(Y(Z(fn)));
+        #   With reversed():  pfn = Z(Y(X(fn)))
+        #   The latter feels more natural.
+        #   i.e., plugins installed 1st are applied 1st.
     
     # Errors: ::::::::::::::::::::::::::::::::::::::::::::::
 
