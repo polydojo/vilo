@@ -41,7 +41,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.5-preview";  # Req'd by flit.
+__version__ = "0.0.5";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -339,7 +339,7 @@ def buildResponse (start_response):
         elif name == "CONTENT-LENGTH":
             raise Exception("The Content-Length header will be automatically set.");
         else:
-            res._headerMap[name] = value;
+            res._headerMap[name] = value; # TODO: str(value)?
     res.setHeader = setHeader;
     
     def getHeader (name):

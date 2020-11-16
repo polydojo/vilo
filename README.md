@@ -5,55 +5,76 @@ Vilo is a WSGI micro-framework for building web apps with Python. Inspired by [E
 
 Installation
 --------------
-Vilo is installable via pip:
+Install Vilo via pip:
 ```
 pip install vilo
 ```
-[Gunicorn](https://gunicorn.org/) is recommended for running Vilo apps (in development and production), installable via pip:
-```
-pip install gunicorn
-```
+[Waitress](https://docs.pylonsproject.org/projects/waitress/en/stable/) is a recommended for running Vilo apps, paired with [Hupper](https://docs.pylonsproject.org/projects/hupper/en/latest/). Install via:  
+`pip install waitress hupper`
 
-Alternatively, [Waitress](https://docs.pylonsproject.org/projects/waitress/en/stable/) is a great option for pure-WSGI apps.
+Alternatively [Gunicorn](https://gunicorn.org/) is a popular option, installable via:  
+`pip install gunicorn`
 
 Hello, World!
 ----------------
 
 Create `hello.py`:
 ```py
+# Define App: ##################################
 import vilo;                # Import vilo
 
-app = vilo.buildApp();      # Create app
+app = vilo.buildApp();      # Build (blank) app
 
 @app.route("GET", "/")      # Add route
 def get_homepage (req, res):
     return "Hello, World!";
 
 wsgi = app.wsgi;            # WSGI callable
+
+# Run App: #####################################
+if __name__ == "__main__":
+    import waitress;
+    waitress.serve(wsgi);
 ```
+Run `python hello.py` to start the app. Once the app is running, [visit `localhost:8080`](http://localhost:8080) in your favorite browser! You should see a familiar greeting. (To stop running the app, press: `Ctrl`+`C`)
 
-**Running with Gunicorn:**
+From The Command Line
+------------------------------
 
-For development, run with Gunicorn as follows:
-```
-gunicorn hello:wsgi --reload
-```
-The above line tells Gunicorn to run `wsgi` from `hello.py`. Once running, visit `localhost:8000` to access the app. In production, drop the `--reload` flag. Consult Gunicorn's docs for more.
+Continuing with the `hello.py` example above, instead of calling `waitress.serve(.)` from Python, you can run the app from the command line as follows:
 
-Vilo vs Bottle/Flask/Express
------------------------------------
+#### With Waitress:
 
-**1. No Global `request` or `response`**:
-Bottle and Flask both employ global `request` and `response` objects. Vilo instead, like Express, supplies `req` and `res` as arguments to each route handler. 
++ Using waitress-serve: `waitress-serve hello:wsgi`
++ With Hupper for dev: `hupper -m waitress hello:wsgi`
 
-**2. Conspicuous HTTP Method(s)**:
-Like Bottle and Flask, Vilo relies on the decorator-based `@app.route(...)` pattern for route definitions, but unlike them, Vilo encourages you to conspicuously specify the HTTP request method (or methods, as a list).
+Waitress includes the `waitress-serve` command, using which, we're asking Waitress to run `wsgi` from the `hello` module. Hupper is useful during development, for hot-reloads.
 
-**3. No Built-In Templating**:
-Bottle and Flask both include built-in templating engines. As an un-opinionated framework, Vilo doesn't. You may pick any templating engine you want. For illustration only, our examples will use [Qree](https://github.com/polydojo/qree), installable via `pip install qree`.
+Kindly refer to Waitress/Hupper's docs for more.
 
-**4. No Built-In Development Server:**
-Bottle and Flask include a development server with hot-reloads for local testing and development, but recommend *against* using it in production. Instead of pre-packaging a devlopment server, we recommend using Gunicorn with the `--reload` flag.
+#### Using Gunicorn:
+
++ Without hot-reloads: `gunicorn hello:wsgi`
++ With `--reload` for dev: `gunicorn hello:wsgi --reload`
+
+Kindly refer to Gunicorn's docs for more.
+
+
+Vilo vs Flask/Bottle
+------------------------
+#### No Magic Globals:
+
+Flask and Bottle both employ globals like `request`, `g` and/or `response`. Vilo instead, like Express, supplies `req` and `res` as arguments to each route handler. 
+
+If you're building a single app, globals can be very handy. But if you're looking to build and deploy multiple (entirely isolated) apps, having to deal with automatically context-aware globals can seem *eerily magical*.
+
+With Vilo, `req` and `res` arguments passed to route handlers are *entirely isolated*. Even with regard to a single app, each route handler receives fully isolated `req` and `res` objects.
+
+**No Built-In Templating**:  
+Bottle and Flask both include built-in templating engines. As an un-opinionated framework, Vilo doesn't. You may pick any templating engine you want. For illustration only, our examples will use [Qree](https://github.com/polydojo/qree) (read 'Curie'), installable via `pip install qree`.
+
+**No Built-In Development Server:**  
+Bottle and Flask include a development server with hot-reloads for local testing and development, but recommend *against* using it in production. Instead of pre-packaging a development server, we recommend using Gunicorn with the `--reload` flag, or Waitress atop Hupper.
 
 
 Basic Routes & Static Files
@@ -342,7 +363,7 @@ In debug mode, which can be enabled via `app.setDebug(True)`, the default 500-er
 
 Quick Plug
 --------------
-Vilo is built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by Sumukh Barve. If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
+Vilo is built and maintained by the folks at [Polydojo, Inc.](https://www.polydojo.com/), led by [Sumukh Barve](https://www.sumukhbarve.com/). If your team is looking for a simple project management tool, please check out our latest product: [**BoardBell.com**](https://www.boardbell.com/).
 
 Headers
 -----------
@@ -432,8 +453,56 @@ def get_sample_json (req, res):
 
 ```
 
+Plugins (Universal Route Decorators)
+--------------------------------------------
+
+If you'd like certain action to be performed across *all* routes, it's best to define a plugin for such behavior. (Plugins are just decorators that are applied to all routes.)
+
+#### Example: `X-Exec-Time` Header
+
+To add the `X-Exec-Time` header to each response, we can write a plugin that computes the execution time and adds the header.
+
+```py
+import time;
+
+def plugin_xExecTime (fn):
+    def wrapper (req, res, *args, **kwargs):
+        t0 = time.time();
+        result = fn(req, res, *args, **kwargs);
+        tDiff = time.time() - t0;
+        res.setHeader("X-Exec-Time", str(tDiff));
+        return result;
+    return wrapper;
+```
+Then, install the plugin onto your app via:
+```py
+app.install(plugin_xExecTime)
+```
+
+#### Example: Enforcing HTTPS
+```py
+def plugin_enforceHttps (fn):
+    def wrapper (req, res, *args, **kwargs):
+        scheme = req.splitUrl.scheme;
+        if scheme != "https":
+            newUrl = req.url.replace(scheme, "https", 1);
+            return res.redirect(newUrl);
+        # otherwise ...
+        return fn(req, res, *args, **kwargs);
+```
+Then, as before, install onto you app via:
+```py
+app.install(plugin_enforceHttps)
+```
+
+#### Plugin Application Order
+
+Ideally, plugins should be written *independently* of all other plugins. That is, each plugin should assume that other plugins may exist, and that plugins may be applied in any order.
+
+However, it may be useful to know that plugins that are installed first are applied first by Vilo. That is if you `app.install(X)`, then install `Y`, and then `Z`; then effectively `Z(Y(X(.)))` should be expected. That is, `X(.)` completes first, then `Y(.)`, and then `Z(.)`.
+
 TestBin: In-Memory Pastebin App
----------------------------------------------
+-----------------------------------------
 
 Check out [`testbin.py`](https://github.com/polydojo/vilo/blob/master/testing.py) a super-simple, in-memory [pastebin](https://en.wikipedia.org/wiki/Pastebin) app. Instead of connecting to a database or file-storage system, the app uses a `dict` for (temporarily) storing pastes.
 
@@ -443,6 +512,10 @@ The `testbin.py` module is included in Vilo's GitHub repo. The app may be run as
 gunicorn testbin:wsgi --reload
 ```
 Then, head over to `localhost:8080` in your favorite browser.
+
+ViloLog: DB-Backed Blogging Engine
+---------------------------------------------
+For a bit more in-depth example, check out [ViloLog](https://github.com/polydojo/vilolog): a blogging engine built atop Vilo and [PogoDB](https://github.com/polydojo/pogodb).
 
 Licensing
 ------------
