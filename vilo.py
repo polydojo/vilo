@@ -41,7 +41,7 @@ import pprint;
 
 import dotsi;
 
-__version__ = "0.0.5";  # Req'd by flit.
+__version__ = "0.0.6-preview";  # Req'd by flit.
 
 ############################################################
 # Helpers & Miscellaneous: #################################
@@ -70,6 +70,7 @@ httpCodeLineMap = {
 };
 
 def getStatusLineFromCode (code):
+    "Guesses status (eg '404 Not Found') from `code` (eg 404).";
     return httpCodeLineMap.get(code) or "404 Not Found";
 
 class HttpError (Exception):
@@ -96,12 +97,14 @@ esc = lambda s: (str(s).replace("&", "&amp;")
 );
 
 def dictDefaults (dicty, defaults):
+    "Adds `defaults` keys to `dicty`, WITHOUT overwriting.";
     for k in defaults:
         if k not in dicty:
             dicty[k] = defaults[k];
     return None;
 
 def escfmt (string, seq):
+    "Like built-in %s formatting, but with HTML-escaping.";
     if isinstance(seq, (str, float, int, type(None), bool)):
         seq = [seq];
     if isinstance(seq, (list, tuple)):
@@ -115,11 +118,13 @@ def escfmt (string, seq):
 # String encoding and cookie-signing related: ::::::::::::::
 
 def toBytes (x, enc="utf8"):
+    "Converts `str` to `bytes`, retains `bytes` as `bytes`.";
     if type(x) is bytes: return x;
     if type(x) is str: return x.encode(enc);
     raise TypeError("Expected `str` (or `bytes`), not `%s`" % (type(x),));
 
 def toStr (x, enc="utf8"):
+    "Converts `bytes` to `str`, retains `str` as `str`.";
     if type(x) is str: return x;
     if type(x) is bytes: return x.decode(enc);
     raise TypeError("Expected `bytes` (or `str`), not `%s`" % (type(x),));
@@ -135,12 +140,14 @@ def utf8_to_latin1 (s):
     return s.encode("utf8").decode("latin1");
 
 def hmacy (b_msg, b_secret, digestmod=hashlib.sha512):
+    "HMAC helper.";
     assert type(b_msg) is bytes and type(b_secret) is bytes;
     return hmac.HMAC(b_secret, b_msg, digestmod).digest();    
 
 B_SIGN_SEP = b"@|";  # SIGNing SEParator, of type `bytes`.
 
 def signWrap (value, secret):
+    "Signs `value` using `secret`.";
     b_jval = toBytes(json.dumps(value));
     b_secret = toBytes(secret);
     b_sig = hmacy(b_jval, b_secret);
@@ -151,6 +158,7 @@ def signWrap (value, secret):
     return toStr(b_signed);
 
 def signUnwrap (signed, secret):
+    "If `signed` with `secret`, returns original value.";
     if not (type(signed) is str and toStr(B_SIGN_SEP) in signed):
         return None;
     # otherwise ...
@@ -166,6 +174,7 @@ def signUnwrap (signed, secret):
     return json.loads(toStr(b_jval));
 
 def test_signWrap (value, secret):
+    "Testing helper.";
     assert signUnwrap(signWrap(value, secret), secret) == value;
 
 ############################################################
@@ -290,12 +299,13 @@ def buildRequest (environ):
     def fill_fdata ():
         if not req.contentType:
             pass;   # Falsy contentType, ignore.
-        elif req.contentType == "application/x-www-form-urlencoded":
-            req.fdata = parseQs(req.bodyBytes.decode("latin1"));        # "utf8" doesn't seem to work. "latin1" does?!?
         elif req.contentType == "application/json":
             req.fdata = json.loads(req.bodyBytes);
         elif req.contentType.startswith("multipart/form-data"):
             req.fdata = helper_parseMultipartFormData();
+        elif req.contentType.startswith("application/x-www-form-urlencoded"):
+            req.fdata = parseQs(req.bodyBytes.decode("latin1"));
+            # "utf8" wont't to work, WSGI uses "latin1" ^^
         else:
             pass;   # Other contentType, ignore.
     fill_fdata();       # Immediately called.
@@ -522,36 +532,56 @@ def checkRouteMatch (route, req):
     
 
 def buildApp ():
+    "Builds an empty (i.e. routeless) app-container.";
     app = dotsi.fy({});
     app.routeList = [];
     app.pluginList = [];
     
     # Route Adding: ::::::::::::::::::::::::::::::::::::::::
     
+    def findNamedRoute (name):
+        "Returns route named `name`, else None.";
+        if name is None: return None;
+        rtList = filterli(app.routeList, lambda rt: rt.name == name);
+        assert len(rtList) <= 1;
+        return rtList[0] if rtList else None;
+    app.findNamedRoute = findNamedRoute;
+    
     def addRoute (verb, path, fn, mode=None, name=None, top=False):
         "Add a route handler `fn` against `path`, for `verb`.";
+        assert type(top) is bool;
+        if findNamedRoute(name):
+            raise ValueError("Route with name %r already exists." % name);
         index = 0 if top else len(app.routeList);
         route = buildRoute(verb, path, fn, mode, name);
         app.routeList.insert(index, route);
     app.addRoute = addRoute;
             
-    def route (verb, path, mode=None, name=None, top=False):
-        "Produces decorator for adding routes.";
-        # TODO: Default `verb` 'GET'? And document param `top`.
-        #if path is None and type(verb) is str and "/" in verb:
-        #    verb, path = "GET", verb;
-        #elif path is None:
-        #    raise TypeError("Routing:: Param `path` shouldn't be `None`.");
-        #assert path is not None;
+    def mkRouteDeco (verb, path, mode=None, name=None, top=False):
+        "Makes a decorator for adding routes.";
+        # TODO: Write documentation for param `top`.
+        # TODO: Consider (DON'T!) making 'GET' the default verb.
         def identityDecorator (fn):
             addRoute(verb, path, fn, mode, name, top);
             return fn;
         return identityDecorator;
-    app.route = route;
+    app.route = mkRouteDeco;
+
+    def popNamedRoute (name):
+        "Removes route named `name`, else raises ValueError.";
+        assert name and type(name) is str;
+        rt = findNamedRoute(name);
+        if not rt:
+            raise ValueError("No such route with name %r." % name);
+        # otherwise ...
+        app.routeList.remove(rt);
+        return rt;
+    app.popNamedRoute = popNamedRoute;
     
     # Plugins: :::::::::::::::::::::::::::::::::::::::::::::
     
     def install (plugin):
+        "Installs `plugin`.";
         app.pluginList.append(plugin);
     app.install = install;
     
@@ -572,10 +602,12 @@ def buildApp ():
 
     app.inDebugMode = False;
     def setDebug (boolean):
+        "Enable/disable debug mode by passing `boolean`.";
         app.inDebugMode = bool(boolean);
     app.setDebug = setDebug;
     
     def mkDefault_frameworkError_handler (code, msg=None):
+        "Makes a default error handler for framework errors."
         statusLine = getStatusLineFromCode(code);
         def defaultErrorHandler (xReq, xRes, xErr):
             if xReq.contentType == "application/json":
@@ -585,6 +617,7 @@ def buildApp ():
         return defaultErrorHandler;
     
     def default_frameworkError_unexpected (xReq, xRes, xErr):
+        "Default handler for unexpecte errors.";
         if not app.inDebugMode:
             return "<h2>500 Internal Server Error</h2>";
         # otherwise ...
@@ -620,6 +653,7 @@ def buildApp ():
     # Route matching, WSGI callable: :::::::::::::::::::::::
     
     def getMatchingRoute (req):
+        "Returns a matching route for a given request `req`.";
         reqVerb = req.getVerb();
         reqPath = req.getPathInfo();
         
